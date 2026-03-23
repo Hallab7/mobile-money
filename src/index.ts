@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { transactionRoutes } from './routes/transactions';
 import { errorHandler } from './middleware/errorHandler';
+import { connectRedis } from './config/redis';
 
 dotenv.config();
 
@@ -28,6 +29,16 @@ app.get('/health', (req, res) => {
 app.use('/api/transactions', transactionRoutes);
 
 app.use(errorHandler);
+
+// Initialize Redis connection
+connectRedis()
+  .then(() => {
+    console.log('Redis initialized');
+  })
+  .catch((err) => {
+    console.error('Failed to connect to Redis:', err);
+    console.warn('Distributed locks will not be available');
+  });
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

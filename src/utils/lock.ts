@@ -1,0 +1,149 @@
+import Redlock, { Lock, Settings } from 'redlock';
+import { redisClient } from '../config/redis';
+
+/**
+ * Distributed lock manager using Redlock algorithm.
+ * Prevents race conditions in distributed systems.
+ */
+class LockManager {
+  private redlock: Redlock;
+  private readonly defaultTTL = 10000; // 10 seconds default TTL
+
+  constructor() {
+    const settings: Partial<Settings> = {
+      driftFactor: 0.01,
+      retryCount: 3,
+      retryDelay: 200,
+      retryJitter: 200,
+      automaticExtensionThreshold: 500
+    };
+
+    this.redlock = new Redlock([redisClient], settings);
+
+    this.redlock.on('error', (error) => {
+      console.error('Redlock error:', error);
+    });
+  }
+
+  /**
+   * Acquires a distributed lock for a given resource.
+   * 
+   * @param resource - Unique identifier for the resource to lock
+   * @param ttl - Time-to-live in milliseconds (auto-release after this time)
+   * @returns Lock object if successful
+   * @throws Error if lock cannot be acquired
+   * 
+   * @example
+   * const lock = await lockManager.acquire('transaction:123', 5000);
+   */
+  async acquire(resource: string, ttl: number = this.defaultTTL): Promise<Lock> {
+    try {
+      const lock = await this.redlock.acquire([`locks:${resource}`], ttl);
+      console.log(`Lock acquired: ${resource} (TTL: ${ttl}ms)`);
+      return lock;
+    } catch (error) {
+      console.error(`Failed to acquire lock: ${resource}`, error);
+      throw new Error(`Unable to acquire lock for resource: ${resource}`);
+    }
+  }
+
+  /**
+   * Releases a previously acquired lock.
+   * 
+   * @param lock - The lock object to release
+   * 
+   * @example
+   * await lockManager.release(lock);
+   */
+  async release(lock: Lock): Promise<void> {
+    try {
+      await lock.release();
+      console.log(`Lock released: ${lock.resources}`);
+    } catch (error) {
+      console.error('Failed to release lock:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Extends the TTL of an existing lock.
+   * 
+   * @param lock - The lock to extend
+   * @param ttl - Additional time in milliseconds
+   * @returns Extended lock object
+   */
+  async extend(lock: Lock, ttl: number): Promise<Lock> {
+    try {
+      const extendedLock = await lock.extend(ttl);
+      console.log(`Lock extended: ${lock.resources} (+${ttl}ms)`);
+      return extendedLock;
+    } catch (error) {
+      console.error('Failed to extend lock:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Executes a function with automatic lock acquisition and release.
+   * Ensures lock is always released, even if the function throws an error.
+   * 
+   * @param resource - Unique identifier for the resource to lock
+   * @param fn - Async function to execute while holding the lock
+   * @param ttl - Time-to-live in milliseconds
+   * @returns Result of the function execution
+   * 
+   * @example
+   * const result = await lockManager.withLock('transaction:123', async () => {
+   *   // Critical section code here
+   *   return processTransaction();
+   * });
+   */
+  async withLock<T>(
+    resource: string,
+    fn: () => Promise<T>,
+    ttl: number = this.defaultTTL
+  ): Promise<T> {
+    const lock = await this.acquire(resource, ttl);
+    try {
+      return await fn();
+    } finally {
+      await this.release(lock);
+    }
+  }
+
+  /**
+   * Attempts to acquire a lock without retrying.
+   * Returns null if lock cannot be acquired immediately.
+   * 
+   * @param resource - Unique identifier for the resource to lock
+   * @param ttl - Time-to-live in milliseconds
+   * @returns Lock object if successful, null otherwise
+   */
+  async tryAcquire(resource: string, ttl: number = this.defaultTTL): Promise<Lock | null> {
+    try {
+      const noRetryRedlock = new Redlock([redisClient], {
+        retryCount: 0
+      });
+      const lock = await noRetryRedlock.acquire([`locks:${resource}`], ttl);
+      console.log(`Lock acquired (no retry): ${resource}`);
+      return lock;
+    } catch (error) {
+      console.log(`Lock not available: ${resource}`);
+      return null;
+    }
+  }
+}
+
+// Singleton instance
+export const lockManager = new LockManager();
+
+/**
+ * Lock key generators for common use cases
+ */
+export const LockKeys = {
+  transaction: (id: string) => `transaction:${id}`,
+  phoneNumber: (phone: string) => `phone:${phone}`,
+  referenceNumber: (date: string) => `reference:${date}`,
+  stellarAccount: (address: string) => `stellar:${address}`,
+  provider: (provider: string, phone: string) => `provider:${provider}:${phone}`
+};

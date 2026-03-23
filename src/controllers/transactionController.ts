@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { StellarService } from '../services/stellar/stellarService';
 import { MobileMoneyService } from '../services/mobilemoney/mobileMoneyService';
 import { TransactionModel } from '../models/transaction';
+import { lockManager, LockKeys } from '../utils/lock';
 
 const stellarService = new StellarService();
 const mobileMoneyService = new MobileMoneyService();
@@ -11,28 +12,40 @@ export const depositHandler = async (req: Request, res: Response) => {
   try {
     const { amount, phoneNumber, provider, stellarAddress } = req.body;
     
-    const transaction = await transactionModel.create({
-      type: 'deposit',
-      amount,
-      phoneNumber,
-      provider,
-      stellarAddress,
-      status: 'pending'
-    });
+    // Use distributed lock to prevent duplicate transactions from same phone number
+    const result = await lockManager.withLock(
+      LockKeys.phoneNumber(phoneNumber),
+      async () => {
+        const transaction = await transactionModel.create({
+          type: 'deposit',
+          amount,
+          phoneNumber,
+          provider,
+          stellarAddress,
+          status: 'pending'
+        });
 
-    const mobileMoneyResult = await mobileMoneyService.initiatePayment(
-      provider,
-      phoneNumber,
-      amount
+        const mobileMoneyResult = await mobileMoneyService.initiatePayment(
+          provider,
+          phoneNumber,
+          amount
+        );
+
+        if (mobileMoneyResult.success) {
+          await stellarService.sendPayment(stellarAddress, amount);
+          await transactionModel.updateStatus(transaction.id, 'completed');
+        }
+
+        return { transactionId: transaction.id, referenceNumber: transaction.referenceNumber, status: 'completed' };
+      },
+      15000 // 15 second TTL
     );
 
-    if (mobileMoneyResult.success) {
-      await stellarService.sendPayment(stellarAddress, amount);
-      await transactionModel.updateStatus(transaction.id, 'completed');
-    }
-
-    res.json({ transactionId: transaction.id, status: 'completed' });
+    res.json(result);
   } catch (error) {
+    if (error instanceof Error && error.message.includes('Unable to acquire lock')) {
+      return res.status(409).json({ error: 'Transaction already in progress for this phone number' });
+    }
     res.status(500).json({ error: 'Transaction failed' });
   }
 };
