@@ -69,6 +69,11 @@ app.use(responseTime);
 // Health & readiness
 app.get("/health", (req, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
 
+// Basic health check
+app.get("/health", (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
 /**
  * Readiness probe (DB + Redis)
  */
