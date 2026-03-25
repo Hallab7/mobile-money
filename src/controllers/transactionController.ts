@@ -55,7 +55,129 @@ export const validateTransaction = (
   }
 };
 
-// ------------------ Handlers ------------------
+// ------------------ New History Handler (Issue #21) ------------------
+
+export const getTransactionHistoryHandler = async (req: Request, res: Response) => {
+  try {
+    const { startDate, endDate, page = "1", limit = "10" } = req.query;
+
+    // 1. Validate ISO 8601 Format
+    const isValidISO = (dateStr: any) => {
+      if (!dateStr) return true;
+      const d = new Date(dateStr as string);
+      return !isNaN(d.getTime()) && (dateStr as string).includes('-');
+    };
+
+    if (!isValidISO(startDate) || !isValidISO(endDate)) {
+      return res.status(400).json({ error: "Invalid date format. Please use ISO 8601 (YYYY-MM-DD)" });
+    }
+
+    // 2. Validate Date Logic
+    if (startDate && endDate && new Date(startDate as string) > new Date(endDate as string)) {
+      return res.status(400).json({ error: "startDate cannot be greater than endDate" });
+    }
+
+    // 3. Prepare Pagination
+    const pageNum = Math.max(1, parseInt(page as string) || 1);
+    const limitNum = Math.max(1, Math.min(100, parseInt(limit as string) || 10));
+    const offset = (pageNum - 1) * limitNum;
+
+    // 4. Build Dynamic PostgreSQL Query
+    let query = "SELECT * FROM transactions WHERE 1=1";
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (startDate && endDate) {
+      query += ` AND created_at BETWEEN $${paramIndex++} AND $${paramIndex++}`;
+      params.push(new Date(startDate as string).toISOString(), new Date(endDate as string).toISOString());
+    } else if (startDate) {
+      query += ` AND created_at >= $${paramIndex++}`;
+      params.push(new Date(startDate as string).toISOString());
+    } else if (endDate) {
+      query += ` AND created_at <= $${paramIndex++}`;
+      params.push(new Date(endDate as string).toISOString());
+    }
+
+    query += ` ORDER BY created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+    params.push(limitNum, offset);
+
+    // 5. Execute Database Query
+    const result = await pool.query(query, params);
+
+    res.json({
+      success: true,
+      pagination: { 
+        page: pageNum, 
+        limit: limitNum, 
+        total_records: result.rowCount 
+      },
+      data: result.rows
+    });
+
+  } catch (error) {
+    console.error("History Fetch Error:", error);
+    res.status(500).json({ error: "Failed to fetch transaction history from database" });
+  }
+};
+// ------------------ Existing Handlers ------------------
+
+
+
+
+
+
+/*
+//Mock data for test//
+
+
+export const getTransactionHistoryHandler = async (req: Request, res: Response) => {
+  try {
+    const { startDate, endDate, page = "1", limit = "10" } = req.query;
+
+    // 1. ISO 8601 Validation
+    const isValidISO = (dateStr: any) => {
+      if (!dateStr) return true;
+      const d = new Date(dateStr as string);
+      return !isNaN(d.getTime()) && (dateStr as string).includes('-');
+    };
+
+    if (!isValidISO(startDate) || !isValidISO(endDate)) {
+      return res.status(400).json({ 
+        error: "Invalid date format. Please use ISO 8601 (YYYY-MM-DD)" 
+      });
+    }
+
+    // 2. Logic Validation (THE MISSING PIECE)
+    if (startDate && endDate && new Date(startDate as string) > new Date(endDate as string)) {
+      return res.status(400).json({ 
+        error: "startDate cannot be greater than endDate" 
+      });
+    }
+
+    // 3. MOCK DATA (Only reached if validation passes)
+    const mockTransactions = [
+      { id: 1, amount: 100, type: 'deposit', created_at: new Date().toISOString() },
+      { id: 2, amount: 50, type: 'withdraw', created_at: new Date().toISOString() }
+    ];
+
+    res.json({
+      success: true,
+      pagination: { 
+        page: parseInt(page as string) || 1, 
+        limit: parseInt(limit as string) || 10, 
+        count: mockTransactions.length 
+      },
+      data: mockTransactions
+    });
+
+  } catch (error) {
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+
+
+*/
 export const depositHandler = async (req: Request, res: Response) => {
   try {
     const { amount, phoneNumber, provider, stellarAddress, userId } = req.body;
@@ -206,6 +328,18 @@ export const getTransactionHandler = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Transaction not found" });
 
     let jobProgress = null;
+    if (transaction.status === TransactionStatus.Pending) jobProgress = await getJobProgress(id);
+
+    const timeoutMinutes = Number(process.env.TRANSACTION_TIMEOUT_MINUTES || 30);
+    if (transaction.status === TransactionStatus.Pending) {
+      const createdAt = new Date(transaction.createdAt).getTime();
+      const now = Date.now();
+      if ((now - createdAt) / (1000 * 60) > timeoutMinutes) {
+        await transactionModel.updateStatus(id, TransactionStatus.Failed);
+        transaction.status = TransactionStatus.Failed;
+        (transaction as any).reason = "Transaction timeout";
+      }
+    }
     if (transaction.status === TransactionStatus.Pending) {
       jobProgress = await getJobProgress(id);
     }

@@ -3,6 +3,9 @@ import {
   depositHandler,
   withdrawHandler,
   getTransactionHandler,
+  cancelTransactionHandler,
+  validateTransaction,
+  getTransactionHistoryHandler, // Added for pagination/filtering
   updateNotesHandler,
   searchTransactionsHandler,
   validateTransaction,
@@ -12,6 +15,15 @@ import { TimeoutPresets, haltOnTimedout } from "../middleware/timeout";
 import { validateTransaction } from "../controllers/transactionController";
 
 export const transactionRoutes = Router();
+
+// --- Transaction History (New) ---
+// GET /api/transactions
+transactionRoutes.get(
+  "/",
+  TimeoutPresets.quick,
+  haltOnTimedout,
+  getTransactionHistoryHandler
+);
 
 // Deposit route
 transactionRoutes.post(
@@ -31,6 +43,8 @@ transactionRoutes.post(
   withdrawHandler,
 );
 
+// Get single transaction
+transactionRoutes.get("/:id", TimeoutPresets.quick, haltOnTimedout, getTransactionHandler);
 // Quick read operation
 transactionRoutes.get(
   "/:id",
