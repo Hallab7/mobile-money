@@ -12,16 +12,21 @@ export class AirtelService {
     });
   }
 
-  /**
-   * =========================
-   * AUTHENTICATION
-   * =========================
-   */
   private async authenticate(): Promise<string> {
     if (this.token && Date.now() < this.tokenExpiry) {
       return this.token;
     }
 
+    const response = await this.client.post("/auth/oauth2/token", null, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization:
+          "Basic " +
+          Buffer.from(
+            `${process.env.AIRTEL_API_KEY}:${process.env.AIRTEL_API_SECRET}`,
+          ).toString("base64"),
+      },
+    });
     try {
       const response = await this.client.post("/auth/oauth2/token", null, {
         headers: {
@@ -29,7 +34,7 @@ export class AirtelService {
           Authorization:
             "Basic " +
             Buffer.from(
-              `${process.env.AIRTEL_API_KEY}:${process.env.AIRTEL_API_SECRET}`
+              `${process.env.AIRTEL_API_KEY}:${process.env.AIRTEL_API_SECRET}`,
             ).toString("base64"),
         },
       });
@@ -44,11 +49,6 @@ export class AirtelService {
     }
   }
 
-  /**
-   * =========================
-   * RETRY WRAPPER
-   * =========================
-   */
   private async withRetry<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
     let lastError: Error | undefined;
 
@@ -59,9 +59,11 @@ export class AirtelService {
         lastError = err as Error;
 
         // Retry only for transient errors
-        if ((err as { response?: { status?: number } }).response?.status && 
-            (err as { response: { status: number } }).response.status >= 500 || 
-            (err as { code?: string }).code === "ECONNABORTED") {
+        if (
+          ((err as { response?: { status?: number } }).response?.status &&
+            (err as { response: { status: number } }).response.status >= 500) ||
+          (err as { code?: string }).code === "ECONNABORTED"
+        ) {
           console.warn(`Retrying Airtel request (${i + 1})`);
           await new Promise((res) => setTimeout(res, 1000 * (i + 1)));
           continue;
@@ -107,7 +109,7 @@ export class AirtelService {
               "X-Country": "NG",
               "X-Currency": "NGN",
             },
-          }
+          },
         );
 
         return { success: true, data: response.data };
@@ -126,18 +128,21 @@ export class AirtelService {
     const token = await this.authenticate();
 
     return this.withRetry(async () => {
-      const response = await this.client.get(
-        `/standard/v1/payments/${reference}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "X-Country": "NG",
-            "X-Currency": "NGN",
+      try {
+        const response = await this.client.get(
+          `/standard/v1/payments/${reference}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "X-Country": "NG",
+              "X-Currency": "NGN",
+            },
           },
-        }
-      );
-
-      return response.data;
+        );
+        return { success: true, data: response.data };
+      } catch (error) {
+        return { success: false, error };
+      }
     });
   }
 
@@ -170,7 +175,7 @@ export class AirtelService {
               "X-Country": "NG",
               "X-Currency": "NGN",
             },
-          }
+          },
         );
 
         return { success: true, data: response.data };

@@ -1,31 +1,65 @@
 import { Router } from "express";
 import {
+  cancelTransactionHandler,
   depositHandler,
-  withdrawHandler,
   getTransactionHandler,
+  getTransactionHistoryHandler,
+  searchTransactionsHandler,
+  updateNotesHandler,
+  withdrawHandler,
 } from "../controllers/transactionController";
+import { validateTransaction } from "../middleware/validateTransaction";
 import { TimeoutPresets, haltOnTimedout } from "../middleware/timeout";
 
 export const transactionRoutes = Router();
 
-// Deposit and withdraw operations may take longer due to external API calls
+transactionRoutes.get(
+  "/",
+  TimeoutPresets.quick,
+  haltOnTimedout,
+  getTransactionHistoryHandler,
+);
+
+transactionRoutes.get(
+  "/search",
+  TimeoutPresets.quick,
+  haltOnTimedout,
+  searchTransactionsHandler,
+);
+
 transactionRoutes.post(
   "/deposit",
   TimeoutPresets.long,
   haltOnTimedout,
+  validateTransaction,
   depositHandler,
 );
+
 transactionRoutes.post(
   "/withdraw",
   TimeoutPresets.long,
   haltOnTimedout,
+  validateTransaction,
   withdrawHandler,
 );
 
-// Quick read operation
 transactionRoutes.get(
   "/:id",
   TimeoutPresets.quick,
   haltOnTimedout,
   getTransactionHandler,
+);
+
+transactionRoutes.post(
+  "/:id/cancel",
+  TimeoutPresets.quick,
+  haltOnTimedout,
+  cancelTransactionHandler,
+);
+
+transactionRoutes.patch(
+  "/:id/notes",
+  TimeoutPresets.quick,
+  haltOnTimedout,
+  updateNotesHandler,
 );
