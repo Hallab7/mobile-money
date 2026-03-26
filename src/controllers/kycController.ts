@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { Pool } from 'pg';
-import KYCService, { KYCLevel, KYCStatus } from '../services/kyc';
+import KYCService, { KYCLevel } from '../services/kyc';
 import { z } from 'zod';
 
 // Validation schemas
@@ -59,7 +59,7 @@ export class KYCController {
    */
   createApplicant = async (req: Request, res: Response) => {
     try {
-      const userId = req.user?.id;
+      const userId = req.jwtUser?.userId;
       if (!userId) {
         return res.status(401).json({ error: 'User not authenticated' });
       }
@@ -103,7 +103,7 @@ export class KYCController {
   getApplicant = async (req: Request, res: Response) => {
     try {
       const { applicantId } = req.params;
-      const userId = req.user?.id;
+      const userId = req.jwtUser?.userId;
       
       if (!userId) {
         return res.status(401).json({ error: 'User not authenticated' });
@@ -136,7 +136,7 @@ export class KYCController {
    */
   uploadDocument = async (req: Request, res: Response) => {
     try {
-      const userId = req.user?.id;
+      const userId = req.jwtUser?.userId;
       if (!userId) {
         return res.status(401).json({ error: 'User not authenticated' });
       }
@@ -181,7 +181,7 @@ export class KYCController {
    */
   createWorkflowRun = async (req: Request, res: Response) => {
     try {
-      const userId = req.user?.id;
+      const userId = req.jwtUser?.userId;
       if (!userId) {
         return res.status(401).json({ error: 'User not authenticated' });
       }
@@ -230,7 +230,7 @@ export class KYCController {
    */
   generateSDKToken = async (req: Request, res: Response) => {
     try {
-      const userId = req.user?.id;
+      const userId = req.jwtUser?.userId;
       if (!userId) {
         return res.status(401).json({ error: 'User not authenticated' });
       }
@@ -279,7 +279,7 @@ export class KYCController {
   getVerificationStatus = async (req: Request, res: Response) => {
     try {
       const { applicantId } = req.params;
-      const userId = req.user?.id;
+      const userId = req.jwtUser?.userId;
       
       if (!userId) {
         return res.status(401).json({ error: 'User not authenticated' });
@@ -312,7 +312,7 @@ export class KYCController {
    */
   getUserKYCStatus = async (req: Request, res: Response) => {
     try {
-      const userId = req.user?.id;
+      const userId = req.jwtUser?.userId;
       if (!userId) {
         return res.status(401).json({ error: 'User not authenticated' });
       }
@@ -367,7 +367,6 @@ export class KYCController {
       
       // Verify webhook signature if secret is configured
       if (webhookSecret && req.headers['x-onfido-signature']) {
-        const signature = req.headers['x-onfido-signature'] as string;
         // TODO: Implement signature verification using webhookSecret
         // This is a security measure to ensure webhook is from Entrust
       }
