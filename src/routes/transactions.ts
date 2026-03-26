@@ -7,6 +7,10 @@ import {
   searchTransactionsHandler,
   updateNotesHandler,
   withdrawHandler,
+  updateMetadataHandler,
+  patchMetadataHandler,
+  deleteMetadataKeysHandler,
+  searchByMetadataHandler,
 } from "../controllers/transactionController";
 import { validateTransaction } from "../middleware/validateTransaction";
 import { TimeoutPresets, haltOnTimedout } from "../middleware/timeout";
@@ -67,4 +71,36 @@ transactionRoutes.patch(
   TimeoutPresets.quick,
   haltOnTimedout,
   updateNotesHandler,
+);
+
+// Replace metadata
+transactionRoutes.put(
+  "/:id/metadata",
+  TimeoutPresets.quick,
+  haltOnTimedout,
+  updateMetadataHandler,
+);
+
+// Merge metadata keys
+transactionRoutes.patch(
+  "/:id/metadata",
+  TimeoutPresets.quick,
+  haltOnTimedout,
+  patchMetadataHandler,
+);
+
+// Delete metadata keys
+transactionRoutes.delete(
+  "/:id/metadata",
+  TimeoutPresets.quick,
+  haltOnTimedout,
+  deleteMetadataKeysHandler,
+);
+
+// Search by metadata
+transactionRoutes.post(
+  "/search/metadata",
+  TimeoutPresets.quick,
+  haltOnTimedout,
+  searchByMetadataHandler,
 );

@@ -11,6 +11,8 @@ export enum TransactionStatus {
 const MAX_TAGS = 10;
 const TAG_REGEX = /^[a-z0-9-]+$/;
 
+const MAX_METADATA_BYTES = 10240; // 10 KB
+
 const TRANSACTION_SELECT_COLUMNS = `
   id,
   reference_number AS "referenceNumber",
@@ -23,6 +25,7 @@ const TRANSACTION_SELECT_COLUMNS = `
   COALESCE(tags, '{}') AS tags,
   notes,
   admin_notes AS "adminNotes",
+  COALESCE(metadata, '{}') AS metadata,
   user_id AS "userId",
   idempotency_key AS "idempotencyKey",
   idempotency_expires_at AS "idempotencyExpiresAt",
@@ -42,6 +45,25 @@ function validateTags(tags: string[]): void {
   }
 }
 
+function validateMetadata(metadata: unknown): Record<string, unknown> {
+  if (metadata === null || metadata === undefined) {
+    return {};
+  }
+
+  if (typeof metadata !== "object" || Array.isArray(metadata)) {
+    throw new Error("Metadata must be a JSON object");
+  }
+
+  const json = JSON.stringify(metadata);
+  if (Buffer.byteLength(json, "utf8") > MAX_METADATA_BYTES) {
+    throw new Error(
+      `Metadata exceeds maximum size of ${MAX_METADATA_BYTES / 1024} KB`,
+    );
+  }
+
+  return metadata as Record<string, unknown>;
+}
+
 export interface Transaction {
   id: string;
   referenceNumber: string;
@@ -58,6 +80,7 @@ export interface Transaction {
   webhook_last_attempt_at?: Date | null;
   webhook_delivered_at?: Date | null;
   webhook_last_error?: string | null;
+  metadata: Record<string, unknown>;
   createdAt: Date;
   updatedAt?: Date | null;
 }
@@ -74,6 +97,7 @@ export interface CreateTransactionInput {
   userId?: string | null;
   idempotencyKey?: string | null;
   idempotencyExpiresAt?: Date | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface WebhookDeliveryUpdate {
@@ -87,6 +111,7 @@ export class TransactionModel {
   async create(data: CreateTransactionInput): Promise<Transaction> {
     const tags = data.tags ?? [];
     validateTags(tags);
+    const metadata = validateMetadata(data.metadata);
     const referenceNumber = await generateReferenceNumber();
 
     const result = await pool.query<Transaction>(
@@ -102,9 +127,10 @@ export class TransactionModel {
         notes,
         user_id,
         idempotency_key,
-        idempotency_expires_at
+        idempotency_expires_at,
+        metadata
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING ${TRANSACTION_SELECT_COLUMNS}`,
       [
         referenceNumber,
@@ -119,6 +145,7 @@ export class TransactionModel {
         data.userId ?? null,
         data.idempotencyKey ?? null,
         data.idempotencyExpiresAt ?? null,
+        JSON.stringify(metadata),
       ],
     );
 
@@ -336,6 +363,99 @@ export class TransactionModel {
        ) @@ plainto_tsquery('english', $1)
        ORDER BY created_at DESC`,
       [query],
+    );
+
+    return result.rows;
+  }
+
+  // ── Metadata (JSONB) ────────────────────────────────────────────────────
+
+  async updateMetadata(
+    id: string,
+    metadata: Record<string, unknown>,
+  ): Promise<Transaction | null> {
+    const validated = validateMetadata(metadata);
+
+    const result = await pool.query<Transaction>(
+      `UPDATE transactions
+       SET metadata = $1::jsonb, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING ${TRANSACTION_SELECT_COLUMNS}`,
+      [JSON.stringify(validated), id],
+    );
+
+    return result.rows[0] || null;
+  }
+
+  async patchMetadata(
+    id: string,
+    patch: Record<string, unknown>,
+  ): Promise<Transaction | null> {
+    validateMetadata(patch);
+
+    // Merge new keys into existing metadata (shallow merge)
+    const result = await pool.query<Transaction>(
+      `UPDATE transactions
+       SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING ${TRANSACTION_SELECT_COLUMNS}`,
+      [JSON.stringify(patch), id],
+    );
+
+    // Validate combined size
+    const row = result.rows[0];
+    if (row) {
+      const combinedSize = Buffer.byteLength(
+        JSON.stringify(row.metadata),
+        "utf8",
+      );
+      if (combinedSize > MAX_METADATA_BYTES) {
+        // Roll back by removing the patched keys
+        const keys = Object.keys(patch);
+        await pool.query(
+          `UPDATE transactions
+           SET metadata = metadata - $1::text[],
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2`,
+          [keys, id],
+        );
+        throw new Error(
+          `Metadata exceeds maximum size of ${MAX_METADATA_BYTES / 1024} KB`,
+        );
+      }
+    }
+
+    return row || null;
+  }
+
+  async removeMetadataKeys(
+    id: string,
+    keys: string[],
+  ): Promise<Transaction | null> {
+    if (!keys.length) return this.findById(id);
+
+    const result = await pool.query<Transaction>(
+      `UPDATE transactions
+       SET metadata = metadata - $1::text[],
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING ${TRANSACTION_SELECT_COLUMNS}`,
+      [keys, id],
+    );
+
+    return result.rows[0] || null;
+  }
+
+  async findByMetadata(
+    filter: Record<string, unknown>,
+  ): Promise<Transaction[]> {
+    const result = await pool.query<Transaction>(
+      `SELECT ${TRANSACTION_SELECT_COLUMNS}
+       FROM transactions
+       WHERE metadata @> $1::jsonb
+       ORDER BY created_at DESC`,
+      [JSON.stringify(filter)],
     );
 
     return result.rows;

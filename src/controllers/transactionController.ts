@@ -610,3 +610,119 @@ export const listTransactionsHandler = async (req: Request, res: Response) => {
     return res.status(500).json({ error: "Failed to list transactions" });
   }
 };
+
+// ── Metadata Handlers ─────────────────────────────────────────────────
+
+export const updateMetadataHandler = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { metadata } = req.body;
+
+    if (metadata === undefined || metadata === null) {
+      return res.status(400).json({ error: "metadata field is required" });
+    }
+
+    if (typeof metadata !== "object" || Array.isArray(metadata)) {
+      return res.status(400).json({ error: "metadata must be a JSON object" });
+    }
+
+    const transaction = await transactionModel.updateMetadata(id, metadata);
+    if (!transaction) {
+      return res.status(404).json({ error: "Transaction not found" });
+    }
+
+    return res.json(transaction);
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to update metadata";
+
+    return res
+      .status(
+        err instanceof Error && err.message.includes("size") ? 400 : 500,
+      )
+      .json({ error: message });
+  }
+};
+
+export const patchMetadataHandler = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { metadata } = req.body;
+
+    if (metadata === undefined || metadata === null) {
+      return res.status(400).json({ error: "metadata field is required" });
+    }
+
+    if (typeof metadata !== "object" || Array.isArray(metadata)) {
+      return res.status(400).json({ error: "metadata must be a JSON object" });
+    }
+
+    const transaction = await transactionModel.patchMetadata(id, metadata);
+    if (!transaction) {
+      return res.status(404).json({ error: "Transaction not found" });
+    }
+
+    return res.json(transaction);
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to patch metadata";
+
+    return res
+      .status(
+        err instanceof Error && err.message.includes("size") ? 400 : 500,
+      )
+      .json({ error: message });
+  }
+};
+
+export const deleteMetadataKeysHandler = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const { id } = req.params;
+    const { keys } = req.body;
+
+    if (!Array.isArray(keys) || !keys.every((k) => typeof k === "string")) {
+      return res
+        .status(400)
+        .json({ error: "keys must be an array of strings" });
+    }
+
+    const transaction = await transactionModel.removeMetadataKeys(id, keys);
+    if (!transaction) {
+      return res.status(404).json({ error: "Transaction not found" });
+    }
+
+    return res.json(transaction);
+  } catch (err) {
+    console.error("Failed to delete metadata keys:", err);
+    return res.status(500).json({ error: "Failed to delete metadata keys" });
+  }
+};
+
+export const searchByMetadataHandler = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const { filter } = req.body;
+
+    if (
+      filter === undefined ||
+      filter === null ||
+      typeof filter !== "object" ||
+      Array.isArray(filter)
+    ) {
+      return res
+        .status(400)
+        .json({ error: "filter must be a JSON object" });
+    }
+
+    const transactions = await transactionModel.findByMetadata(filter);
+    return res.json({ data: transactions, total: transactions.length });
+  } catch (err) {
+    console.error("Metadata search error:", err);
+    return res.status(500).json({ error: "Failed to search by metadata" });
+  }
+};

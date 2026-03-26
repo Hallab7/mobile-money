@@ -7,6 +7,10 @@ import {
   updateNotesHandler,
   searchTransactionsHandler,
   listTransactionsHandler,
+  updateMetadataHandler,
+  patchMetadataHandler,
+  deleteMetadataKeysHandler,
+  searchByMetadataHandler,
 } from "../../controllers/transactionController";
 import { TimeoutPresets, haltOnTimedout } from "../../middleware/timeout";
 import { validateTransactionFilters } from "../../utils/transactionFilters";
@@ -85,4 +89,52 @@ transactionRoutesV1.get(
     next();
   },
   searchTransactionsHandler
+);
+
+// Replace metadata
+transactionRoutesV1.put(
+  "/:id/metadata",
+  TimeoutPresets.quick,
+  haltOnTimedout,
+  (req: VersionedRequest, res, next) => {
+    req.apiVersion = "v1";
+    next();
+  },
+  updateMetadataHandler,
+);
+
+// Merge metadata keys
+transactionRoutesV1.patch(
+  "/:id/metadata",
+  TimeoutPresets.quick,
+  haltOnTimedout,
+  (req: VersionedRequest, res, next) => {
+    req.apiVersion = "v1";
+    next();
+  },
+  patchMetadataHandler,
+);
+
+// Delete metadata keys
+transactionRoutesV1.delete(
+  "/:id/metadata",
+  TimeoutPresets.quick,
+  haltOnTimedout,
+  (req: VersionedRequest, res, next) => {
+    req.apiVersion = "v1";
+    next();
+  },
+  deleteMetadataKeysHandler,
+);
+
+// Search by metadata
+transactionRoutesV1.post(
+  "/search/metadata",
+  TimeoutPresets.quick,
+  haltOnTimedout,
+  (req: VersionedRequest, res, next) => {
+    req.apiVersion = "v1";
+    next();
+  },
+  searchByMetadataHandler,
 );
