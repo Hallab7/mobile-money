@@ -5,10 +5,28 @@ import rateLimit from "express-rate-limit";
 import compression from "compression";
 import dotenv from "dotenv";
 
+// API Versioning
+import {
+  apiVersionMiddleware,
+  validateVersionMiddleware,
+  VersionedRequest,
+} from "./middleware/apiVersion";
+
+// V1 Routes
+import {
+  transactionRoutesV1,
+  bulkRoutesV1,
+  transactionDisputeRoutesV1,
+  disputeRoutesV1,
+  statsRoutesV1,
+} from "./routes/v1";
+
+// Legacy routes (for backward compatibility)
 import { transactionRoutes } from "./routes/transactions";
 import { bulkRoutes } from "./routes/bulk";
 import { transactionDisputeRoutes, disputeRoutes } from "./routes/disputes";
 import { statsRoutes } from "./routes/stats";
+import { reportsRoutes } from "./routes/reports";
 import { errorHandler } from "./middleware/errorHandler";
 import { connectRedis, redisClient } from "./config/redis";
 import { pool } from "./config/database";
@@ -18,6 +36,7 @@ import {
   timeoutErrorHandler,
 } from "./middleware/timeout";
 import { responseTime } from "./middleware/responseTime";
+import { requestId } from "./middleware/requestId";
 import {
   createQueueDashboard,
   getQueueHealth,
@@ -32,6 +51,10 @@ import { metricsMiddleware } from "./middleware/metrics";
 import { HealthCheckResponse, ReadinessCheckResponse } from "./types/api";
 
 dotenv.config();
+
+// Validate Stellar network configuration
+validateStellarNetwork();
+logStellarNetwork();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -97,6 +120,7 @@ app.use(
 );
 app.use(limiter);
 app.use(responseTime);
+app.use(requestId);
 
 // Health & readiness
 app.get("/health", (req, res) =>
@@ -152,12 +176,39 @@ app.get("/ready", async (req, res) => {
 app.use(globalTimeout);
 app.use(haltOnTimedout);
 
-// Routes
-app.use("/api/transactions", transactionRoutes);
+// API Versioning middleware
+app.use(apiVersionMiddleware);
+app.use(validateVersionMiddleware);
+
+/**
+ * Versioned Routes
+ * Routes are now under /api/v1/ prefix
+ */
+
+// V1 Routes
+app.use("/api/v1/transactions", transactionRoutesV1);
+app.use("/api/v1/transactions", transactionDisputeRoutesV1);
+app.use("/api/v1/transactions/bulk", bulkRoutesV1);
+app.use("/api/v1/disputes", disputeRoutesV1);
+app.use("/api/v1/stats", statsRoutesV1);
+
+/**
+ * Legacy Routes (Backward Compatibility)
+ * Automatically redirect to v1 routes for backward compatibility
+ */
+app.use("/api/transactions", (req: VersionedRequest, res, next) => {
+  req.apiVersion = "v1";
+  res.setHeader("API-Version", "v1");
+  res.setHeader("Deprecation", "true");
+  res.setHeader("Sunset", new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toUTCString());
+  res.setHeader('Url', `https://example.com${req.originalUrl.replace("/api/", "/api/v1/")}`);
+  next();
+}, transactionRoutes);
 app.use("/api/transactions", transactionDisputeRoutes);
 app.use("/api/transactions/bulk", bulkRoutes);
 app.use("/api/disputes", disputeRoutes);
 app.use("/api/stats", statsRoutes);
+app.use("/api/reports", reportsRoutes);
 
 // Queue endpoints
 app.get("/health/queue", getQueueHealth);
@@ -190,7 +241,7 @@ app.use(errorHandler);
 connectRedis()
   .then(() => {
     // Only log if not in test mode to keep test output clean
-    if (process.env.NODE_ENV !== 'test') {
+    if (process.env.NODE_ENV !== "test") {
       console.log("Redis initialized");
     }
   })
@@ -205,7 +256,7 @@ app.use("/admin/queues", queueRouter);
 
 // --- START SERVER LOGIC ---
 // We check if we are in a test environment to prevent port collisions
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== "test") {
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
 
@@ -217,5 +268,3 @@ app.listen(PORT, () => {
     `Rate limit: ${RATE_LIMIT_MAX_REQUESTS} requests per ${RATE_LIMIT_WINDOW_MS / 1000}s`,
   );
 });
-
-export default app;
