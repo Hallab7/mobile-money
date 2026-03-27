@@ -708,13 +708,3 @@ sep24Router.get("/health", async (req: Request, res: Response) => {
 });
 
 export default sep24Router;
-export {
-  getSep24Info,
-  initiateDeposit,
-  initiateWithdrawal,
-  getTransaction,
-  updateTransactionStatus,
-  processCallback,
-  calculateFee,
-  getSep24Config,
-};
