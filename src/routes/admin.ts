@@ -16,6 +16,7 @@ import {
   parseCSV,
   reconcileTransactions,
 } from "../services/csvReconciliation";
+import { dlqInspectorHandler } from "../queue/dlq";
 
 const router = Router();
 const IMPERSONATION_TOKEN_EXPIRES_IN = "15m";
@@ -613,6 +614,15 @@ router.patch(
   logAdminAction("UPDATE_TRANSACTION_ADMIN_NOTES"),
   updateAdminNotesHandler,
 );
+
+/**
+ * =========================
+ * QUEUES & DLQ
+ * =========================
+ */
+
+// GET /api/admin/queues/dlq
+router.get("/queues/dlq", requireAdmin, logAdminAction("VIEW_DLQ"), dlqInspectorHandler);
 
 /**
  * =========================
