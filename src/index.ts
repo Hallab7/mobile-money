@@ -43,6 +43,7 @@ import { responseTime } from "./middleware/responseTime";
 import { requestId } from "./middleware/requestId";
 import { metricsMiddleware } from "./middleware/metrics";
 import { validateStellarNetwork, logStellarNetwork } from "./config/stellar";
+import { sessionAnomalyLogger } from "./services/logger";
 import { HealthCheckResponse, ReadinessCheckResponse } from "./types/api";
 import sep31Router from "./stellar/sep31";
 
@@ -133,6 +134,7 @@ app.use(
     },
   }),
 );
+app.use(sessionAnomalyLogger);
 
 app.get("/health", (_req: Request, res: Response) => {
   const body: HealthCheckResponse = {
