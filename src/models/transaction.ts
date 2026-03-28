@@ -234,7 +234,7 @@ export class TransactionModel {
     return mapTransactionRow(result.rows[0])!;
   }
 
-  async findByUserId(userId: string): Promise<Transaction | null> {
+  async findByUserId(userId: string): Promise<Transaction[]> {
     const result = await pool.query<Transaction>(
       `SELECT ${TRANSACTION_SELECT_COLUMNS}
        FROM transactions
@@ -242,7 +242,7 @@ export class TransactionModel {
       [userId],
     );
 
-    return result.rows[0] || null;
+    return result.rows;
   }
 
   async findById(id: string): Promise<Transaction | null> {
