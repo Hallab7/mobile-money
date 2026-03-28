@@ -1,3 +1,4 @@
+import "./tracer";
 import express, { NextFunction, Request, Response } from "express";
 import { IncomingMessage } from "http";
 import cors from "cors";
@@ -60,6 +61,7 @@ import { HealthCheckResponse, ReadinessCheckResponse } from "./types/api";
 import sep31Router from "./stellar/sep31";
 import sep24Router from "./stellar/sep24";
 import { createSep12Router } from "./stellar/sep12";
+import tomlRouter from "./routes/toml";
 
 // 1. Import Sentry Middleware
 import { initSentry, sentryBreadcrumbMiddleware } from "./middleware/sentry";
@@ -251,6 +253,7 @@ app.use("/api/admin", requireAuth, adminRoutes);
 app.use("/sep31", sep31Router);
 app.use("/sep24", sep24Router);
 app.use("/sep12", createSep12Router(pool));
+app.use("/.well-known/stellar.toml", tomlRouter);
 
 app.use(
   (
