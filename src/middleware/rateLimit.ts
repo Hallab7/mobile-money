@@ -1,122 +1,218 @@
 import { Request, Response, NextFunction } from "express";
-import { redisClient } from "../config/redis";
 
-type Bucket = "auth" | "read" | "mutation";
+/**
+ * Rate Limit Configuration
+ * These values can be easily tuned for different use cases
+ */
+export const RATE_LIMIT_CONFIG = {
+  // Export endpoint: 5 requests per hour per admin
+  EXPORT_LIMIT: 5,
+  EXPORT_WINDOW_MS: 60 * 60 * 1000, // 1 hour in milliseconds
 
-const WINDOW_SECONDS = 60; // per-minute windows
+  // List queries: warn when requesting more than 1000 items
+  MASSIVE_LIST_THRESHOLD: 1000,
 
-// Acceptance criteria limits
-const LIMITS: Record<Bucket, number> = {
-  auth: 5, // strictly limited to 5/min
-  read: 100, // allow 100/min
-  mutation: 30, // reasonable default for mutations (assumption)
+  // Suspicious queries: more than 50 items without pagination
+  SUSPICIOUS_QUERY_THRESHOLD: 50,
 };
 
-// Weights per method/default. Endpoints can be assigned heavier weights here by path.
-const DEFAULT_WEIGHT_BY_METHOD: Record<string, number> = {
-  GET: 1,
-  POST: 5,
-  PUT: 5,
-  PATCH: 5,
-  DELETE: 5,
+/**
+ * Interface for tracking rate limit data
+ */
+interface RateLimitEntry {
+  count: number;
+  resetTime: number;
+}
+
+/**
+ * In-memory store for rate limit tracking
+ * In production, use Redis or similar for distributed systems
+ */
+const rateLimitStore = new Map<string, RateLimitEntry>();
+
+/**
+ * Log high-severity events
+ */
+const logHighSeverity = (message: string, context: Record<string, unknown>) => {
+  console.error(`[RATE_LIMIT_BREACH] HIGH SEVERITY: ${message}`, {
+    timestamp: new Date().toISOString(),
+    ...context,
+  });
 };
 
-// Optional per-path weights (prefix match). Add entries here if some endpoints should cost more.
-const PATH_WEIGHTS: Array<{ prefix: string; weight: number }> = [
-  // Example: { prefix: "/api/v1/transactions/bulk", weight: 10 },
-];
+/**
+ * Generate a rate limit key based on user ID and endpoint
+ */
+const generateRateLimitKey = (userId: string, endpoint: string): string => {
+  return `${userId}:${endpoint}`;
+};
 
-function getWeight(req: Request): number {
-  for (const p of PATH_WEIGHTS) {
-    if (req.path.startsWith(p.prefix)) return p.weight;
+/**
+ * Check and update rate limit counter
+ */
+const checkRateLimit = (
+  key: string,
+  limit: number,
+  windowMs: number,
+): { allowed: boolean; remaining: number; resetTime: number } => {
+  const now = Date.now();
+  let entry = rateLimitStore.get(key);
+
+  // If entry doesn't exist or has expired, create a new one
+  if (!entry || now > entry.resetTime) {
+    entry = {
+      count: 0,
+      resetTime: now + windowMs,
+    };
+    rateLimitStore.set(key, entry);
   }
-  return DEFAULT_WEIGHT_BY_METHOD[req.method] || 1;
-}
 
-function getBucket(req: Request): Bucket {
-  // Auth endpoints explicitly mapped
-  if (req.path.startsWith("/api/auth") || req.path.startsWith("/oauth"))
-    return "auth";
+  const remaining = Math.max(0, limit - entry.count);
+  const allowed = entry.count < limit;
 
-  // Reads: consider GET methods as read endpoints
-  if (req.method === "GET") return "read";
+  if (allowed) {
+    entry.count++;
+  }
 
-  // All others treated as mutation
-  return "mutation";
-}
+  return {
+    allowed,
+    remaining,
+    resetTime: entry.resetTime,
+  };
+};
 
-function getIdentifier(req: Request): string {
-  // Try user-based identifier if available (req.session or req.user), else fall back to IP
-  // Don't depend on session middleware being present; safest is IP-based rate limiting.
-  const ip = (req.ip || req.headers["x-forwarded-for"] || "unknown") as string;
-  return ip;
-}
-
-export async function rateLimitMiddleware(
+/**
+ * Middleware: Rate limit for export endpoints
+ * Limit: 5 exports per hour per admin
+ */
+export const rateLimitExport = (
   req: Request,
   res: Response,
   next: NextFunction,
-) {
-  try {
-    if (!redisClient || !redisClient.isOpen) {
-      // If Redis isn't available, allow requests (fail open) but log a warning.
-      console.warn("Rate limiter: Redis not available, skipping rate limiting");
-      return next();
-    }
+) => {
+  const userId = (req as any).user?.id;
 
-    const bucket = getBucket(req);
-    const limit = LIMITS[bucket];
-    const weight = getWeight(req);
-    const ident = getIdentifier(req);
-
-    const windowIdx = Math.floor(Date.now() / 1000 / WINDOW_SECONDS);
-    const key = `ratelimit:${bucket}:${ident}:${windowIdx}`;
-
-    // Atomically increment by weight and set expiry when first created.
-    // Using INCRBY and then setting EXPIRE if value equals weight.
-    const newCount = await redisClient.incrBy(key, weight);
-    if (newCount === weight) {
-      // newly created in this window; set TTL to remaining seconds in window
-      const elapsed = Date.now() / 1000 - windowIdx * WINDOW_SECONDS;
-      const ttl = Math.max(1, WINDOW_SECONDS - Math.floor(elapsed));
-      try {
-        await redisClient.expire(key, ttl);
-      } catch (err) {
-        // Non-fatal
-        console.warn("Rate limiter: failed to set key TTL", err);
-      }
-    }
-
-    const remaining = Math.max(0, limit - newCount);
-
-    // Set informative headers similar to common rate-limit middleware
-    res.setHeader("X-RateLimit-Limit", String(limit));
-    res.setHeader("X-RateLimit-Remaining", String(remaining));
-
-    if (newCount > limit) {
-      // compute retry-after using the TTL on the key
-      let retryAfter = WINDOW_SECONDS;
-      try {
-        const ttl = await redisClient.ttl(key);
-        if (ttl && ttl > 0) retryAfter = ttl;
-      } catch {
-        // ignore
-      }
-
-      res.setHeader("Retry-After", String(retryAfter));
-      res.status(429).json({
-        error: "Too Many Requests",
-        message: `Rate limit exceeded. Try again in ${retryAfter} seconds.`,
-      });
-      return;
-    }
-
-    return next();
-  } catch (err) {
-    console.error("Rate limiter: unexpected error", err);
-    // Fail open on error to avoid blocking traffic on unexpected errors
-    return next();
+  if (!userId) {
+    return res.status(401).json({ message: "Unauthorized" });
   }
-}
 
-export default rateLimitMiddleware;
+  const key = generateRateLimitKey(userId, "EXPORT");
+  const { allowed, remaining, resetTime } = checkRateLimit(
+    key,
+    RATE_LIMIT_CONFIG.EXPORT_LIMIT,
+    RATE_LIMIT_CONFIG.EXPORT_WINDOW_MS,
+  );
+
+  // Set rate limit headers
+  res.setHeader("X-RateLimit-Limit", RATE_LIMIT_CONFIG.EXPORT_LIMIT);
+  res.setHeader("X-RateLimit-Remaining", remaining);
+  res.setHeader("X-RateLimit-Reset", new Date(resetTime).toISOString());
+
+  if (!allowed) {
+    logHighSeverity("Export rate limit exceeded", {
+      userId,
+      limit: RATE_LIMIT_CONFIG.EXPORT_LIMIT,
+      window: "1 hour",
+      path: req.path,
+      method: req.method,
+    });
+
+    return res.status(429).json({
+      message: "Rate limit exceeded for exports",
+      error: "TOO_MANY_EXPORT_REQUESTS",
+      retryAfter: Math.ceil((resetTime - Date.now()) / 1000),
+      resetTime: new Date(resetTime).toISOString(),
+    });
+  }
+
+  next();
+};
+
+/**
+ * Middleware: Intelligent rate limiting for list queries
+ * Detects and limits massive data requests
+ */
+export const rateLimitListQueries = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  const userId = (req as any).user?.id;
+  const limit = Number(req.query.limit) || 10;
+  const page = Number(req.query.page) || 1;
+
+  // Check if this is a massive list query (requesting more than threshold items)
+  if (limit > RATE_LIMIT_CONFIG.MASSIVE_LIST_THRESHOLD) {
+    logHighSeverity("Massive list query detected", {
+      userId,
+      requestedLimit: limit,
+      threshold: RATE_LIMIT_CONFIG.MASSIVE_LIST_THRESHOLD,
+      path: req.path,
+      page,
+      timestamp: new Date().toISOString(),
+    });
+
+    return res.status(400).json({
+      message: "List query limit exceeded",
+      error: "LIST_LIMIT_TOO_HIGH",
+      maxAllowed: RATE_LIMIT_CONFIG.MASSIVE_LIST_THRESHOLD,
+      currentRequest: limit,
+    });
+  }
+
+  // Warn about suspicious queries (high limits without pagination awareness)
+  if (limit > RATE_LIMIT_CONFIG.SUSPICIOUS_QUERY_THRESHOLD && page === 1) {
+    console.warn("[RATE_LIMIT_WARNING] Suspicious list query", {
+      userId,
+      requestedLimit: limit,
+      threshold: RATE_LIMIT_CONFIG.SUSPICIOUS_QUERY_THRESHOLD,
+      path: req.path,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  next();
+};
+
+/**
+ * Middleware: Combined rate limiting for sensitive admin operations
+ * Applies both export and list query limits
+ */
+export const rateLimitAdminOperations = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  // First apply list query limits
+  rateLimitListQueries(req, res, (err) => {
+    if (err) return; // Response already sent
+
+    // Then pass to next middleware or route handler
+    next();
+  });
+};
+
+/**
+ * Middleware: Cleanup expired rate limit entries
+ * Call periodically to prevent memory leaks
+ */
+export const cleanupRateLimitStore = () => {
+  const now = Date.now();
+  let cleaned = 0;
+
+  for (const [key, entry] of rateLimitStore.entries()) {
+    if (now > entry.resetTime) {
+      rateLimitStore.delete(key);
+      cleaned++;
+    }
+  }
+
+  if (cleaned > 0) {
+    console.log(
+      `[RATE_LIMIT_CLEANUP] Cleaned up ${cleaned} expired rate limit entries`,
+    );
+  }
+};
+
+// Cleanup expired entries every 30 minutes
+setInterval(cleanupRateLimitStore, 30 * 60 * 1000);
