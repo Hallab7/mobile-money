@@ -11,7 +11,7 @@ import { StellarService } from "../services/stellar/stellarService";
 import { EmailService } from "../services/email";
 import { UserModel } from "../models/users";
 import { withRetry } from "../services/retry";
-import { SmsService } from "../services/sms";
+import { WhatsappService } from "../services/whatsapp";
 import { notifyTransactionWebhook, WebhookService } from "../services/webhook";
 
 const transactionModel = new TransactionModel();
@@ -19,7 +19,7 @@ const mobileMoneyService = new MobileMoneyService();
 const stellarService = new StellarService();
 const emailService = new EmailService();
 const userModel = new UserModel();
-const smsService = new SmsService();
+const whatsappService = new WhatsappService();
 const webhookService = new WebhookService();
 
 const workerOptions = {
@@ -128,7 +128,7 @@ export const transactionWorker = new Worker<
       try {
         const txRow = await transactionModel.findById(transactionId);
         const ref = txRow?.referenceNumber ?? transactionId;
-        await smsService.notifyTransactionEvent(phoneNumber, {
+        await whatsappService.notifyTransactionEvent(phoneNumber, {
           referenceNumber: ref,
           type,
           amount: String(amount),
@@ -137,7 +137,7 @@ export const transactionWorker = new Worker<
           errorMessage,
         });
       } catch (smsErr) {
-        console.error(`[${job.id}] SMS notification error`, smsErr);
+        console.error(`[${job.id}] Notification error`, smsErr);
       }
     };
 

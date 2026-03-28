@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { v4 as uuidv4 } from "uuid";
-import { Transaction, Keypair } from "stellar-sdk";
+import { Transaction, Keypair, StrKey } from "stellar-sdk";
 import { getStellarServer, getNetworkPassphrase, STELLAR_NETWORKS } from "../config/stellar";
 
 // ============================================================================
@@ -253,7 +253,7 @@ export const initiateDeposit = async (
 ): Promise<InteractiveFlowResponse> => {
   // Validate asset is supported
   const config = getSep24Config();
-  const asset = config.assets[request.asset_code];
+  const asset = config.assets[request.asset_code as keyof typeof config.assets];
 
   if (!asset || !asset.deposits_enabled) {
     throw new Error(`Asset ${request.asset_code} is not available for deposit`);
@@ -269,7 +269,7 @@ export const initiateDeposit = async (
   }
 
   // Validate account
-  if (!request.account || !Keypair.isValidPublicKey(request.account)) {
+  if (!request.account || !StrKey.isValidEd25519PublicKey(request.account)) {
     throw new Error("Invalid Stellar account address");
   }
 
@@ -285,7 +285,7 @@ export const initiateWithdrawal = async (
 ): Promise<InteractiveFlowResponse> => {
   // Validate asset is supported
   const config = getSep24Config();
-  const asset = config.assets[request.asset_code];
+  const asset = config.assets[request.asset_code as keyof typeof config.assets];
 
   if (!asset || !asset.withdrawals_enabled) {
     throw new Error(`Asset ${request.asset_code} is not available for withdrawal`);
@@ -301,7 +301,7 @@ export const initiateWithdrawal = async (
   }
 
   // Validate account (for withdrawal, this is the source account)
-  if (!request.account || !Keypair.isValidPublicKey(request.account)) {
+  if (!request.account || !StrKey.isValidEd25519PublicKey(request.account)) {
     throw new Error("Invalid Stellar account address");
   }
 
@@ -415,7 +415,7 @@ export const calculateFee = async (
   operation: "deposit" | "withdrawal"
 ): Promise<{ fee: string; fee_details?: { fixed: number; percent: number } }> => {
   const config = getSep24Config();
-  const asset = config.assets[assetCode];
+  const asset = config.assets[assetCode as keyof typeof config.assets];
 
   if (!asset) {
     throw new Error(`Asset ${assetCode} not supported`);
@@ -708,13 +708,4 @@ sep24Router.get("/health", async (req: Request, res: Response) => {
 });
 
 export default sep24Router;
-export {
-  getSep24Info,
-  initiateDeposit,
-  initiateWithdrawal,
-  getTransaction,
-  updateTransactionStatus,
-  processCallback,
-  calculateFee,
-  getSep24Config,
-};
+export { getSep24Config };
