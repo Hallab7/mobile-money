@@ -93,34 +93,21 @@ export const tokenController = {
     const client = await pool.connect();
 
     try {
-      await client.query("BEGIN");
-
-      // Get all expired tokens
-      const expiredTokenResult = await client.query(
-        `SELECT token_jti FROM refresh_tokens
-            WHERE expired_at < NOW() OR revoked_at < NOW() - INTERVAL '30 days'`,
-      );
-
-      const deleteResult = await client.query(
-        `DELETE FROM refresh_tokens
-            WHERE expires_at < NOW() OR revoked_at < NOW() - INTERVAL '30 days'`,
-      );
+      const { data } = await refreshTokenFamilyModel.purgeExpired();
 
       // Clear from Redis
-      for (const row of expiredTokenResult.rows) {
+      for (const row of data.expiredTokenResult.rows) {
         await redisClient.del(refreshTokenLabel(row.token_jti));
       }
-
-      await client.query("COMMIT");
 
       res.json({
         success: true,
         message: "Purge completed",
-        purgedCount: deleteResult.rowCount,
+        purgedCount: data.purgedCount,
       });
     } catch (err: any) {
-      await client.query("ROLLBACK");
       console.error("Error purging tokens:", err);
+
       res.status(500).json({
         success: false,
         error: err.message,
