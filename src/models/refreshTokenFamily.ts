@@ -49,10 +49,11 @@ export class RefreshTokenFamilyModel {
     return result.rows[0];
   }
 
-  async revokeFamily(family_id: string) {
-    await queryWrite(
-      `UPDATE refresh_token_families SET is_revoked = TRUE, revoked_at = NOW() WHERE family_id = $1`,
-      [family_id],
+  async revokeFamily(family_id: string, user_id:string) {
+    await pool.query(
+      `UPDATE refresh_token_families SET is_revoked = TRUE, revoked_at = NOW() 
+      WHERE family_id = $1 AND user_id = $2`,
+      [family_id, user_id],
     );
   }
 
