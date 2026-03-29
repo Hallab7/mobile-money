@@ -72,6 +72,7 @@ import tomlRouter from "./routes/toml";
 
 // 1. Import Sentry Middleware
 import { initSentry, sentryBreadcrumbMiddleware } from "./middleware/sentry";
+import { WebSocketManager } from "./websocket";
 
 dotenv.config();
 
@@ -466,6 +467,8 @@ process.once("SIGINT", () => {
   void gracefulShutdown("SIGINT");
 });
 
+export let wsManager: WebSocketManager | null = null;
+
 async function initializeRuntime(): Promise<void> {
   if (process.env.NODE_ENV === "test") {
     return;
@@ -513,6 +516,9 @@ async function initializeRuntime(): Promise<void> {
     server = app.listen(PORT, () =>
       console.log(`HTTP/1.1 server running on http://localhost:${PORT}`),
     );
+
+    wsManager = new WebSocketManager(server);
+    console.log("WebSocket server attached");
   }
 }
 
