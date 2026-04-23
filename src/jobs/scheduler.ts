@@ -4,6 +4,9 @@ import { runCleanupJob } from "./cleanupJob";
 import { runReportJob } from "./reportJob";
 import { runStatusCheckJob } from "./statusCheckJob";
 import { runDisputeSlaJob } from "./disputeSlaJob";
+import { runBalanceMonitorJob } from "./balanceMonitorJob";
+import { runSep31MonitorJob } from "./sep31MonitorJob";
+import { runFeeBumpJob } from "./feeBumpJob";
 import { MonitoringService } from "../services/monitoringService";
 import { createPagerDutyService } from "../services/pagerDutyService";
 import { runProviderBalanceAlertJob } from "./balances";
@@ -39,6 +42,24 @@ const JOBS: JobConfig[] = [
     // Daily at 3:00 AM - merges inactive auxiliary Stellar accounts
     schedule: process.env.ACCOUNT_MERGE_CRON || "0 3 * * *",
     handler: runAccountMergeJob,
+  },
+  {
+    name: "balance-monitor",
+    // Every 5 minutes - monitors hot wallet balances
+    schedule: process.env.BALANCE_MONITOR_CRON || "*/5 * * * *",
+    handler: runBalanceMonitorJob,
+  },
+  {
+    name: "sep31-monitor",
+    // Every minute - monitors SEP-31 transactions
+    schedule: process.env.SEP31_MONITOR_CRON || "* * * * *",
+    handler: runSep31MonitorJob,
+  },
+  {
+    name: "fee-bump",
+    // Every 30 seconds - monitors and bumps fees for stuck transactions
+    schedule: process.env.FEE_BUMP_CRON || "*/30 * * * * *",
+    handler: runFeeBumpJob,
   },
   {
     name: "provider-balance-alert",
