@@ -73,6 +73,7 @@
     "express-rate-limit": "^8.3.2",
     "express-session": "^1.19.0",
     "firebase-admin": "^13.7.0",
+    "geoip-lite": "^2.0.1",
     "graphql": "^16.13.2",
     "graphql-depth-limit": "^1.1.0",
     "graphql-query-complexity": "^1.1.0",
