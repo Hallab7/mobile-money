@@ -1,6 +1,8 @@
 import { Pool, PoolClient } from "pg";
 import { pool } from "../config/database";
 import { encrypt, decrypt } from "../utils/encryption";
+import { flushUserSessions } from "../config/redis";
+import { UserModel } from "../models/users";
 
 export interface User {
   id: string;
@@ -359,4 +361,26 @@ export async function getUserPermissions(userId: string): Promise<string[]> {
 
   const result = await pool.query(query, [userId]);
   return result.rows.map((row) => row.permission_name);
+}
+
+export async function invalidateUserOnPasswordChange(userId: string): Promise<void> {
+  const userModel = new UserModel();
+  
+  // 1. Increment DB token version (persisted invalidation)
+  try {
+    await userModel.incrementTokenVersion(userId);
+  } catch (error: any) {
+    // Graceful fallback: Ignore missing column error if the DB migration hasn't run yet
+    if (error.code !== '42703') throw error; 
+  }
+
+  // 2. Revoke all refresh token families
+  try {
+    await pool.query(`UPDATE refresh_token_families SET is_revoked = true WHERE user_id = $1`, [userId]);
+  } catch (error) {
+    console.error("Failed to revoke refresh tokens:", error);
+  }
+
+  // 3. Flush Redis express-sessions and flag active stateless JWTs
+  await flushUserSessions(userId);
 }
