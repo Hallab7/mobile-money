@@ -28,7 +28,9 @@ class LockManager {
       automaticExtensionThreshold: 500,
     };
 
-    this.redlock = new Redlock([redisClient] as any, settings);
+    // Type assertion needed for Redlock compatibility with ioredis
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.redlock = new Redlock([redisClient as any], settings);
 
     this.redlock.on("error", (error) => {
       console.error("Redlock error:", error);
@@ -137,14 +139,16 @@ class LockManager {
     ttl: number = this.defaultTTL,
   ): Promise<Lock | null> {
     try {
-      const noRetryRedlock = new Redlock([redisClient] as any, {
+      // Type assertion needed for Redlock compatibility with ioredis
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const noRetryRedlock = new Redlock([redisClient as any], {
         retryCount: 0,
       });
       const lock = await noRetryRedlock.acquire([`locks:${resource}`], ttl);
       console.log(`Lock acquired (no retry): ${resource}`);
       return lock;
-    } catch (error) {
-      console.log(`Lock not available: ${resource}`);
+    } catch (err) {
+      console.log(`Lock not available: ${resource}`, err);
       return null;
     }
   }
@@ -159,8 +163,12 @@ export const lockManager = new LockManager();
 export const LockKeys = {
   transaction: (id: string) => `transaction:${id}`,
   phoneNumber: (phone: string) => `phone:${phone}`,
+  idempotency: (key: string) => `idempotency:${key}`,
   referenceNumber: (date: string) => `reference:${date}`,
   stellarAccount: (address: string) => `stellar:${address}`,
   provider: (provider: string, phone: string) =>
     `provider:${provider}:${phone}`,
+  vault: (vaultId: string) => `vault:${vaultId}`,
+  userVaults: (userId: string) => `user-vaults:${userId}`,
+  vaultTransfer: (userId: string, vaultId: string) => `vault-transfer:${userId}:${vaultId}`,
 };

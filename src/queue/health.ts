@@ -1,13 +1,19 @@
 import { Request, Response } from "express";
-import { transactionQueue, getQueueStats } from "./transactionQueue";
+import { getQueueStats, pauseQueue, resumeQueue } from "./transactionQueue";
+import { providerBalanceAlertQueue } from "./providerBalanceAlertQueue";
+import { QueueHealthResponse, QueueActionResponse } from "../types/api";
 
 export async function getQueueHealth(req: Request, res: Response) {
   try {
-    const stats = await getQueueStats();
+    const [stats, providerBalanceFailed] = await Promise.all([
+      getQueueStats(),
+      providerBalanceAlertQueue.getFailedCount(),
+    ]);
 
-    const isHealthy = !stats.isPaused && stats.failed < 100;
+    const isHealthy =
+      !stats.isPaused && stats.failed < 100 && providerBalanceFailed < 20;
 
-    res.json({
+    const body: QueueHealthResponse = {
       status: isHealthy ? "healthy" : "degraded",
       timestamp: new Date().toISOString(),
       queue: "transaction-processing",
@@ -18,26 +24,39 @@ export async function getQueueHealth(req: Request, res: Response) {
         failed: stats.failed,
         paused: stats.isPaused,
       },
-    });
-  } catch (error) {
+    };
+    res.json(body);
+  } catch (err) {
+    console.error("Failed to fetch queue health:", err);
     res.status(500).json({ error: "Failed to fetch queue health" });
   }
 }
 
 export async function pauseQueueEndpoint(req: Request, res: Response) {
   try {
-    await transactionQueue.pause();
-    res.json({ success: true, message: "Queue paused" });
-  } catch (error) {
+    await pauseQueue();
+    const body: QueueActionResponse = {
+      success: true,
+      message: "Queue paused",
+    };
+    res.json(body);
+  } catch (err) {
+    console.error("Failed to pause queue:", err);
     res.status(500).json({ error: "Failed to pause queue" });
   }
 }
 
 export async function resumeQueueEndpoint(req: Request, res: Response) {
   try {
-    await transactionQueue.resume();
-    res.json({ success: true, message: "Queue resumed" });
-  } catch (error) {
+    await resumeQueue();
+    const body: QueueActionResponse = {
+      success: true,
+      message: "Queue resumed",
+    };
+    res.json(body);
+  } catch (err) {
+    console.error("Failed to resume queue:", err);
     res.status(500).json({ error: "Failed to resume queue" });
   }
 }
+
