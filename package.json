@@ -26,6 +26,7 @@
     "migrate:create": "tsx src/scripts/migrate.ts create",
     "migrate:status": "tsx src/scripts/migrate.ts status",
     "seed": "tsx src/scripts/seed.ts",
+    "reconcile:ledger": "tsx src/scripts/reconcile-ledger.ts",
     "postinstall": "npm run prepare",
     "contracts:build": "cd contracts/escrow && cargo build --target wasm32-unknown-unknown --release",
     "contracts:test": "cd contracts/escrow && cargo test",
